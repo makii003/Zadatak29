@@ -1,0 +1,91 @@
+﻿using System;
+using System.Net.Http;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System.Collections.Generic;
+
+namespace Zadatak29Rijks
+{
+    public class RijksClient
+    {
+        private readonly HttpClient client = new HttpClient();
+        private const string BASE_URL = "https://www.rijksmuseum.nl/api/en/collection";
+        private const string API_KEY = "0fiuZFh4"; // Javni demo kljuc
+        public async Task<string> PretraziSlikeAsync(string query, string type)
+        {
+            try
+            {
+                var parametri = new List<string>
+                {
+                    $"key={API_KEY}",
+                    "format=json",
+                    "ps=10", // broj rezultata po strani
+                    "imgonly=true"
+                };
+
+                if (!string.IsNullOrEmpty(query))
+                    parametri.Add($"q={Uri.EscapeDataString(query)}");
+
+                if (!string.IsNullOrEmpty(type))
+                    parametri.Add($"type={Uri.EscapeDataString(type)}");
+
+                string url = $"{BASE_URL}?{string.Join("&", parametri)}";
+                HttpResponseMessage response = await client.GetAsync(url);
+                if (!response.IsSuccessStatusCode)
+                {
+                    string errorContent = await response.Content.ReadAsStringAsync();
+                    throw new Exception($"Greska prilikom API poziva ({response.StatusCode}): {errorContent}");
+                }
+                string jsonOdgovor = await response.Content.ReadAsStringAsync();
+                return EkstraktujInformacijeOSlikama(jsonOdgovor);
+            }
+            catch (Exception ex)
+            {
+                return $"Greska prilikom API poziva: {ex.Message}";
+            }
+        }
+
+        private string EkstraktujInformacijeOSlikama(string jsonOdgovor)
+        {
+            try
+            {
+                JObject jsonObj = JObject.Parse(jsonOdgovor);
+                if (jsonObj["error"] != null)
+                    return $"API greska: {jsonObj["error"]}";
+
+                JArray artObjects = (JArray)jsonObj["artObjects"];
+                if (artObjects == null || artObjects.Count == 0)
+                    return "Nema pronadjenih dela koja zadovoljavaju uslove pretrage.";
+
+                var rezultati = new List<string>();
+                rezultati.Add($"Pronadjeno {artObjects.Count} dela:\n");
+                rezultati.Add(new string('=', 60));
+
+                foreach (JToken artObject in artObjects)
+                {
+                    string naslov = artObject["title"]?.ToString() ?? "Nepoznat naslov";
+                    string autor = artObject["principalOrFirstMaker"]?.ToString() ?? "Nepoznat autor";
+                    string slikaUrl = artObject["webImage"]?["url"]?.ToString()
+                                   ?? artObject["headerImage"]?["url"]?.ToString()
+                                   ?? "Nema slike";
+                    string objectNumber = artObject["objectNumber"]?.ToString() ?? "";
+
+                    rezultati.Add($"\n{naslov}");
+                    rezultati.Add($"Autor: {autor}");
+                    rezultati.Add($"ID: {objectNumber}");
+
+                    if (!string.IsNullOrEmpty(slikaUrl) && slikaUrl != "Nema slike")
+                        rezultati.Add($"Slika dostupna: {slikaUrl}");
+
+                    rezultati.Add(new string('-', 40));
+                }
+                return string.Join("\n", rezultati);
+            }
+            catch (Exception ex)
+            {
+                return $"Greska pri obradi podataka: {ex.Message}";
+            }
+        }
+    }
+}
