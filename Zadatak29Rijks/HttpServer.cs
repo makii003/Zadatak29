@@ -2,7 +2,7 @@
 using System.Net;
 using System.Text;
 using System.Threading;
-using Zadatak29Rijks;
+using System.IO;
 
 namespace Zadatak29Rijks
 {
@@ -36,11 +36,11 @@ namespace Zadatak29Rijks
                     {
                         var context = listener.GetContext();
                         Interlocked.Increment(ref activeRequests);
-                        ThreadPool.QueueUserWorkItem(async state =>
+                        ThreadPool.QueueUserWorkItem(state =>
                         {
                             try
                             {
-                                await ObradiZahtev(context);
+                                ObradiZahtev(context);
                             }
                             catch (Exception ex)
                             {
@@ -84,18 +84,19 @@ namespace Zadatak29Rijks
             }
             logger.LogInfo("Cekam da se svi aktivni zahtevi zavrse...");
             stopSignal.WaitOne();
+            while (activeRequests > 0)
+                Thread.Sleep(50);
             logger.LogInfo("Server je zaustavljen.");
         }
 
-        private async System.Threading.Tasks.Task ObradiZahtev(HttpListenerContext context)
+        private void ObradiZahtev(HttpListenerContext context)
         {
-            await semaphore.WaitAsync();
+            semaphore.Wait();
             try
             {
                 string path = context.Request.Url?.AbsolutePath ?? "/";
                 string query = context.Request.Url?.Query ?? "";
                 string fullKey = path + query;
-
                 logger.LogInfo($"Primljen zahtev: {fullKey}");
 
                 if (path.StartsWith("/api/rijks/search"))
@@ -104,30 +105,30 @@ namespace Zadatak29Rijks
                     string type = context.Request.QueryString["type"];
                     if (string.IsNullOrEmpty(q) && string.IsNullOrEmpty(type))
                     {
-                        await PosaljiOdgovor(context, 400, "Morate navesti parametar ?q=<pojam> ili ?type=<vrsta>.\n\nPrimeri:\n/api/rijks/search?q=rembrandt\n/api/rijks/search?type=painting\n/api/rijks/search?q=van+gogh&type=painting");
+                        PosaljiOdgovor(context, 400, "Morate navesti parametar ?q=<pojam> ili ?type=<vrsta>.\n\nPrimeri:\n/api/rijks/search?q=rembrandt\n/api/rijks/search?type=painting\n/api/rijks/search?q=van+gogh&type=painting");
                         return;
                     }
                     string cached = cache.Get(fullKey);
                     if (cached != null)
                     {
                         logger.LogInfo($"Kes pogodak: {fullKey}");
-                        await PosaljiOdgovor(context, 200, cached);
+                        PosaljiOdgovor(context, 200, cached);
                         return;
                     }
-                    string odgovor = await client.PretraziSlikeAsync(q, type);
+                    string odgovor = client.PretraziSlike(q, type);
                     cache.Set(fullKey, odgovor);
                     logger.LogInfo($"API poziv: q={q}, type={type}");
-                    await PosaljiOdgovor(context, 200, odgovor);
+                    PosaljiOdgovor(context, 200, odgovor);
                 }
                 else
                 {
-                    await PosaljiOdgovor(context, 404, "Nepoznat URL. Koristite /api/rijks/search?q=<pojam> ili /api/rijks/search?type=<vrsta>");
+                    PosaljiOdgovor(context, 404, "Nepoznat URL. Koristite /api/rijks/search?q=<pojam> ili /api/rijks/search?type=<vrsta>");
                 }
             }
             catch (Exception ex)
             {
                 logger.LogError($"Greska pri obradi zahteva: {ex.Message}");
-                await PosaljiOdgovor(context, 500, "Doslo je do greske na serveru.");
+                PosaljiOdgovor(context, 500, "Doslo je do greske na serveru.");
             }
             finally
             {
@@ -135,13 +136,20 @@ namespace Zadatak29Rijks
             }
         }
 
-        private async System.Threading.Tasks.Task PosaljiOdgovor(HttpListenerContext context, int status, string tekst)
+        private void PosaljiOdgovor(HttpListenerContext context, int status, string tekst)
         {
-            context.Response.StatusCode = status;
-            byte[] buffer = Encoding.UTF8.GetBytes(tekst);
-            context.Response.ContentLength64 = buffer.Length;
-            await context.Response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-            context.Response.OutputStream.Close();
+            try
+            {
+                context.Response.StatusCode = status;
+                byte[] buffer = Encoding.UTF8.GetBytes(tekst);
+                context.Response.ContentLength64 = buffer.Length;
+                context.Response.OutputStream.Write(buffer, 0, buffer.Length);
+                context.Response.OutputStream.Close();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Greska pri slanju odgovora: {ex.Message}");
+            }
         }
     }
 }

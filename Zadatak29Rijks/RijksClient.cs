@@ -1,9 +1,11 @@
-﻿using System;
-using System.Net.Http;
-using System.Threading.Tasks;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Text;
 
 namespace Zadatak29Rijks
 {
@@ -12,7 +14,7 @@ namespace Zadatak29Rijks
         private readonly HttpClient client = new HttpClient();
         private const string BASE_URL = "https://www.rijksmuseum.nl/api/en/collection";
         private const string API_KEY = "0fiuZFh4"; // Javni demo kljuc
-        public async Task<string> PretraziSlikeAsync(string query, string type)
+        public string PretraziSlike(string query, string type)
         {
             try
             {
@@ -31,13 +33,13 @@ namespace Zadatak29Rijks
                     parametri.Add($"type={Uri.EscapeDataString(type)}");
 
                 string url = $"{BASE_URL}?{string.Join("&", parametri)}";
-                HttpResponseMessage response = await client.GetAsync(url);
+                HttpResponseMessage response = client.GetAsync(url).Result;
                 if (!response.IsSuccessStatusCode)
                 {
-                    string errorContent = await response.Content.ReadAsStringAsync();
+                    string errorContent = response.Content.ReadAsStringAsync().Result;
                     throw new Exception($"Greska prilikom API poziva ({response.StatusCode}): {errorContent}");
                 }
-                string jsonOdgovor = await response.Content.ReadAsStringAsync();
+                string jsonOdgovor = response.Content.ReadAsStringAsync().Result;
                 return EkstraktujInformacijeOSlikama(jsonOdgovor);
             }
             catch (Exception ex)
